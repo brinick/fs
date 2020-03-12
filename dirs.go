@@ -109,7 +109,8 @@ func (d *Directory) CopyTo(dst string) error {
 		exists  bool
 	)
 
-	exists, err = Directory{dst}.Exists()
+	dstDir := Directory{dst}
+	exists, err = dstDir.Exists()
 	if err != nil {
 		return fmt.Errorf(
 			"unable to check if CopyTo destination dir (%s) exists already (%w)",
