@@ -102,9 +102,25 @@ func (d *Directory) Create(mode os.FileMode) error {
 // to the path rooted at the given directory. If the destination
 // exists, an error is returned and no copy is performed.
 func (d *Directory) CopyTo(dst string) error {
-	var err error
-	var fds []os.FileInfo
-	var srcinfo os.FileInfo
+	var (
+		err     error
+		fds     []os.FileInfo
+		srcinfo os.FileInfo
+		exists  bool
+	)
+
+	exists, err = Directory{dst}.Exists()
+	if err != nil {
+		return fmt.Errorf(
+			"unable to check if CopyTo destination dir (%s) exists already (%w)",
+			dst,
+			err,
+		)
+	}
+
+	if exists {
+		return fmt.Errorf("cannot copy to an existing destination dir (%s)", dst)
+	}
 
 	if srcinfo, err = os.Stat(d.Path); err != nil {
 		return err
