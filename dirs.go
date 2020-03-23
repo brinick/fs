@@ -15,7 +15,7 @@ func NewDir(paths ...string) (*Directory, error) {
 	if len(paths) == 0 {
 		d, err := os.Getwd()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to get pwd: %v", err)
 		}
 		return &Directory{d}, nil
 	}
