@@ -8,17 +8,21 @@ import (
 	"strings"
 )
 
-// Dir creates a new directory instance comprised of the
-// joining of the provided paths. A nil value is returned
-// if no paths are provided.
-func Dir(paths ...string) *Directory {
+// NewDir creates a new directory instance comprised of the
+// joining of the provided paths. If no paths are provided,
+// the current directory is returned.
+func NewDir(paths ...string) (*Directory, error) {
 	if len(paths) == 0 {
-		return nil
+		d, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		return &Directory{d}, nil
 	}
 
 	return &Directory{
 		Path: filepath.Join(paths...),
-	}
+	}, nil
 }
 
 // Directory represents a particular directory
@@ -100,7 +104,7 @@ func (d *Directory) Create(mode os.FileMode) error {
 
 // CopyTo recursively copies the content of the directory
 // to the path rooted at the given directory. If the destination
-// exists, an error is returned and no copy is performed.
+// already exists, an error is returned and no copy is performed.
 func (d *Directory) CopyTo(dst string) error {
 	var (
 		err     error
@@ -134,12 +138,22 @@ func (d *Directory) CopyTo(dst string) error {
 	if fds, err = ioutil.ReadDir(d.Path); err != nil {
 		return err
 	}
+
 	for _, fd := range fds {
 		srcfp := filepath.Join(d.Path, fd.Name())
 		dstfp := filepath.Join(dst, fd.Name())
 
 		if fd.IsDir() {
-			if err = Dir(srcfp).CopyTo(dstfp); err != nil {
+			d, err := NewDir(srcfp)
+			if err != nil {
+				return fmt.Errorf(
+					"failed to create Directory instance for %s (%v)",
+					srcfp,
+					err,
+				)
+			}
+
+			if err = d.CopyTo(dstfp); err != nil {
 				return fmt.Errorf("cannot copy dir %s to %s: %w", srcfp, dstfp, err)
 			}
 		} else {
@@ -228,7 +242,8 @@ func (d *Directory) Remove() error {
 func Dirs(dirs ...string) *Directories {
 	var d Directories
 	for _, dir := range dirs {
-		d = append(d, Dir(dir))
+		dd, _ := NewDir(dir)
+		d = append(d, dd)
 	}
 
 	return &d

@@ -99,7 +99,7 @@ func (e *entries) files(includeSymLinks bool) (*Files, error) {
 			}
 		}
 
-		files = append(files, &file{Path: fullpath})
+		files = append(files, NewFile(fullpath))
 	}
 
 	return &files, nil
@@ -119,7 +119,7 @@ func (e *entries) symlinks() (*Files, error) {
 		}
 
 		if isSym {
-			files = append(files, &file{Path: fullpath})
+			files = append(files, NewFile(fullpath))
 		}
 	}
 

@@ -9,24 +9,26 @@ import (
 	"strings"
 )
 
-// File returns a new file instance for the given path
-func File(path string) *file {
-	return &file{}
+// NewFile returns a new file instance for the given path
+func NewFile(path string) *File {
+	return &File{
+		Path: path,
+	}
 }
 
-// file represents a file or symlink
-type file struct {
+// File represents a file or symlink
+type File struct {
 	Path string
 }
 
 // Dir returns the file's parent directory
-func (f *file) Dir() *Directory {
+func (f *File) Dir() *Directory {
 	return &Directory{filepath.Dir(f.Path)}
 }
 
 // Match returns a boolean to indicate if any of the provided patterns
 // match against the file's name
-func (f file) Match(patterns ...string) (bool, error) {
+func (f *File) Match(patterns ...string) (bool, error) {
 	name := f.Name()
 	for _, patt := range patterns {
 		ok, err := filepath.Match(patt, name)
@@ -41,7 +43,9 @@ func (f file) Match(patterns ...string) (bool, error) {
 	return false, nil
 }
 
-func (f *file) WriteLines(lines []string, flag int, perm os.FileMode) error {
+// WriteLines writes the given lines to the file, opening the file with the
+// given os flag and permissions
+func (f *File) WriteLines(lines []string, flag int, perm os.FileMode) error {
 	fd, err := os.OpenFile(f.Path, flag, perm)
 	if err != nil {
 		return err
@@ -59,7 +63,9 @@ func (f *file) WriteLines(lines []string, flag int, perm os.FileMode) error {
 	return nil
 }
 
-func (f *file) Write(data []byte, flag int, perm os.FileMode) error {
+// Write writes the given data bytes to the file, opening the file with the
+// given os flag and permissions
+func (f *File) Write(data []byte, flag int, perm os.FileMode) error {
 	fd, err := os.OpenFile(f.Path, flag, perm)
 	if err != nil {
 		return err
@@ -70,7 +76,8 @@ func (f *file) Write(data []byte, flag int, perm os.FileMode) error {
 	return err
 }
 
-func (f *file) Bytes() ([]byte, error) {
+// Bytes returns the file content as a slice of bytes
+func (f *File) Bytes() ([]byte, error) {
 	exists, err := f.Exists()
 	if err != nil {
 		return []byte{}, err
@@ -81,8 +88,8 @@ func (f *file) Bytes() ([]byte, error) {
 	return ioutil.ReadFile(f.Path)
 }
 
-// Lines returns the file contents as a slice of lines
-func (f *file) Lines() ([]string, error) {
+// Lines returns the file contents as a slice of lines/strings
+func (f *File) Lines() ([]string, error) {
 	var lines = []string{}
 
 	exists, err := f.Exists()
@@ -109,7 +116,7 @@ func (f *file) Lines() ([]string, error) {
 }
 
 // Text returns the file contents as a string
-func (f *file) Text() (string, error) {
+func (f *File) Text() (string, error) {
 	lines, err := f.Lines()
 	if err != nil {
 		return "", err
@@ -119,12 +126,12 @@ func (f *file) Text() (string, error) {
 }
 
 // Name returns the base part of the file path
-func (f *file) Name() string {
+func (f *File) Name() string {
 	return filepath.Base(f.Path)
 }
 
 // NameExt returns the file name split into name and extension
-func (f *file) NameExt() (string, string) {
+func (f *File) NameExt() (string, string) {
 	toks := strings.Split(f.Name(), ".")
 	ntoks := len(toks)
 	if ntoks == 1 {
@@ -139,12 +146,12 @@ func (f *file) NameExt() (string, string) {
 }
 
 // Exists checks if the given file path exists
-func (f *file) Exists() (bool, error) {
+func (f *File) Exists() (bool, error) {
 	return Exists(f.Path)
 }
 
 // Size returns the size in bytes of the file
-func (f *file) Size() int64 {
+func (f *File) Size() int64 {
 	if exists, _ := f.Exists(); exists {
 		if info, err := os.Stat(f.Path); err == nil {
 			return info.Size()
@@ -155,13 +162,13 @@ func (f *file) Size() int64 {
 }
 
 // CopyTo will copy the file to the given destination directory
-func (f *file) CopyTo(dst string) error {
-	return CopyFile(f.Path, dst)
+func (f *File) CopyTo(dstDir string) error {
+	return CopyFile(f.Path, dstDir)
 }
 
 // Resolve will resolve the symbolic link, if it is one.
 // Otherwise it will just return the file path.
-func (f *file) Resolve() (string, error) {
+func (f *File) Resolve() (string, error) {
 	isLink, err := f.IsSymLink()
 	if err != nil {
 		return "", err
@@ -180,14 +187,14 @@ func (f *file) Resolve() (string, error) {
 }
 
 // IsSymLink checks if the file is a symlink
-func (f *file) IsSymLink() (bool, error) {
+func (f *File) IsSymLink() (bool, error) {
 	return IsSymLink(f.Path)
 }
 
 // ------------------------------------------------------------------
 
 // Files represents a collection of files, some of which may be symlinks
-type Files []*file
+type Files []*File
 
 // Paths returns the list of file paths for each file
 func (f *Files) Paths() []string {
