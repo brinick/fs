@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// ErrInexistant is the error returned when a path does not exist
+var ErrInexistant = fmt.Errorf("Inexistant path")
+
 // Exists checks if the given path exists.
 // It may be a directory, normal file or symlink.
 func Exists(path string) (bool, error) {
@@ -19,7 +22,7 @@ func Exists(path string) (bool, error) {
 	}
 
 	if os.IsNotExist(err) {
-		return false, nil
+		return false, ErrInexistant
 	}
 
 	// We return false, however that may not be correct.
@@ -31,6 +34,10 @@ func Exists(path string) (bool, error) {
 // IsSymLink checks if the given path is a symlink
 func IsSymLink(path string) (bool, error) {
 	fi, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return false, ErrInexistant
+	}
+
 	if err != nil {
 		return false, err
 	}
@@ -40,6 +47,10 @@ func IsSymLink(path string) (bool, error) {
 // IsDir checks if the given path is a directory
 func IsDir(path string) (bool, error) {
 	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, ErrInexistant
+	}
+
 	if err != nil {
 		return false, err
 	}

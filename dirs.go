@@ -48,9 +48,20 @@ func (d *Directory) Match(patterns ...string) (bool, error) {
 	return false, nil
 }
 
-// Exists checks if this directory path exists and is a directory
+// Exists checks if this Directory's Path exists and is a directory.
+// Returning false, without an error, does not imply the path does not
+// exist, only that it is not a directory.
 func (d *Directory) Exists() (bool, error) {
-	return IsDir(d.Path)
+	exists, err := IsDir(d.Path)
+	if err == nil {
+		return exists, nil
+	}
+
+	if err == ErrInexistant {
+		return false, nil
+	}
+
+	return false, err
 }
 
 // Dir returns the parent path of the current directory
