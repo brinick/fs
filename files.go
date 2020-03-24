@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // NewFile returns a new file instance for the given path
@@ -24,6 +25,17 @@ type File struct {
 // Dir returns the file's parent directory
 func (f *File) Dir() *Directory {
 	return &Directory{filepath.Dir(f.Path)}
+}
+
+// ModTime returns the last modification time of this file
+func (f *File) ModTime() (*time.Time, error) {
+	info, err := os.Stat(f.Path)
+	if err != nil {
+		return nil, err
+	}
+
+	mt := info.ModTime()
+	return &mt, nil
 }
 
 // Match returns a boolean to indicate if any of the provided patterns
