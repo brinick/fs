@@ -127,6 +127,39 @@ func (f *File) Lines() ([]string, error) {
 
 }
 
+// Touch will create an empty file if it is inexistant, else will update
+// the last modified and access times. If ignoreIfExists is True, then
+// this update will not occur.
+func (f *File) Touch(ignoreIfExists bool) error {
+	var (
+		err    error
+		exists bool
+	)
+
+	exists, err = f.Exists()
+	if err != nil {
+		return err
+	}
+
+	if ignoreIfExists && exists {
+		return nil
+	}
+
+	if !exists {
+		var file *os.File
+		file, err = os.Create(f.Path)
+		if err != nil {
+			return err
+		}
+		defer func() { err = file.Close() }()
+		return err
+	}
+
+	// touch the existing file, update access/mod times
+	now := time.Now().Local()
+	return os.Chtimes(f.Path, now, now)
+}
+
 // Text returns the file contents as a string
 func (f *File) Text() (string, error) {
 	lines, err := f.Lines()
