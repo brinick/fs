@@ -22,9 +22,14 @@ type File struct {
 	Path string
 }
 
-// Dir returns the file's parent directory
+// Dir returns the file's parent Directory
 func (f *File) Dir() *Directory {
 	return &Directory{filepath.Dir(f.Path)}
+}
+
+// DirPath returns the file's parent Directory path
+func (f *File) DirPath() string {
+	return f.Dir().Path
 }
 
 // ModTime returns the last modification time of this file
@@ -43,6 +48,7 @@ func (f *File) ModTime() (*time.Time, error) {
 func (f *File) Match(patterns ...string) (bool, error) {
 	name := f.Name()
 	for _, patt := range patterns {
+		patt = strings.TrimSpace(patt)
 		ok, err := filepath.Match(patt, name)
 		if err != nil {
 			return false, err
@@ -55,37 +61,67 @@ func (f *File) Match(patterns ...string) (bool, error) {
 	return false, nil
 }
 
-// WriteLines writes the given lines to the file, opening the file with the
-// given os flag and permissions
-func (f *File) WriteLines(lines []string, flag int, perm os.FileMode) error {
-	fd, err := os.OpenFile(f.Path, flag, perm)
+// SetFileMode changes the mode of the file
+func (f *File) SetFileMode(perm os.FileMode) error {
+	return os.Chmod(f.Path, perm)
+}
+
+// FileMode gets the file mode if it exists, else returns an error
+func (f *File) FileMode() (os.FileMode, error) {
+	var mode os.FileMode
+	fi, err := os.Stat(f.Path)
 	if err != nil {
-		return err
+		return mode, err
 	}
 
+	return fi.Mode(), nil
+}
+
+// Create will create the file with default file permission.
+// It will truncate the file if it already exists.
+func (f *File) Create() error {
+	return f.CreateWithPerm(0000) // set the default mode
+}
+
+// CreateWithPerm will create the file with the given permission.
+// It will truncate the file if it already exists.
+func (f *File) CreateWithPerm(perm os.FileMode) error {
+	fd, err := os.Create(f.Path)
+	if err != nil {
+		return fmt.Errorf("unable to create file: %v", err)
+	}
 	defer fd.Close()
 
-	for _, line := range lines {
-		_, err = fd.WriteString(line + "\n")
-		if err != nil {
-			break
+	if perm != 0000 {
+		if err = fd.Chmod(perm); err != nil {
+			return fmt.Errorf("unable to change file mode: %v", err)
 		}
 	}
-
 	return nil
 }
 
-// Write writes the given data bytes to the file, opening the file with the
-// given os flag and permissions
-func (f *File) Write(data []byte, flag int, perm os.FileMode) error {
-	fd, err := os.OpenFile(f.Path, flag, perm)
-	if err != nil {
-		return err
-	}
+// AppendLines appends the given lines to the file contents.
+// If the file does not exist, an error is returned.
+func (f *File) AppendLines(lines []string) error {
+	return f.writeLines(lines, true)
+}
 
-	defer fd.Close()
-	_, err = fd.Write(data)
-	return err
+// WriteLines writes the given lines to the file.
+// If the file does not exist, an error is returned.
+func (f *File) WriteLines(lines []string) error {
+	return f.writeLines(lines, false)
+}
+
+// Write writes the given data bytes to the file.
+// If the file does not exist, an error is returned.
+func (f *File) Write(data []byte) error {
+	return f.writeBytes(data, false)
+}
+
+// Append writes the given data bytes to the end of the file.
+// If the file does not exist, an error is returned.
+func (f *File) Append(data []byte) error {
+	return f.writeBytes(data, true)
 }
 
 // Bytes returns the file content as a slice of bytes
@@ -95,7 +131,7 @@ func (f *File) Bytes() ([]byte, error) {
 		return []byte{}, err
 	}
 	if !exists {
-		return []byte{}, fmt.Errorf("%s: file inexistant", f.Path)
+		return []byte{}, InexistantError{f.Path}
 	}
 	return ioutil.ReadFile(f.Path)
 }
@@ -109,7 +145,7 @@ func (f *File) Lines() ([]string, error) {
 		return lines, err
 	}
 	if !exists {
-		return lines, fmt.Errorf("%s: file inexistant", f.Path)
+		return lines, InexistantError{f.Path}
 	}
 
 	fd, err := os.Open(f.Path)
@@ -146,13 +182,9 @@ func (f *File) Touch(ignoreIfExists bool) error {
 	}
 
 	if !exists {
-		var file *os.File
-		file, err = os.Create(f.Path)
-		if err != nil {
+		if err := f.Create(); err != nil {
 			return err
 		}
-		defer func() { err = file.Close() }()
-		return err
 	}
 
 	// touch the existing file, update access/mod times
@@ -234,6 +266,64 @@ func (f *File) Resolve() (string, error) {
 // IsSymLink checks if the file is a symlink
 func (f *File) IsSymLink() (bool, error) {
 	return IsSymLink(f.Path)
+}
+
+func (f *File) isInexistant() bool {
+	_, err := os.Stat(f.Path)
+	return os.IsNotExist(err)
+}
+
+func (f *File) open(flag int) (*os.File, error) {
+	// Stop if the file does not exist
+	if f.isInexistant() {
+		return nil, InexistantError{f.Path}
+	}
+
+	// Get the file's current file mode
+	perm, err := f.FileMode()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get file mode: %v", err)
+	}
+
+	return os.OpenFile(f.Path, flag, perm)
+}
+
+func (f *File) writeBytes(data []byte, append bool) error {
+	flag := os.O_WRONLY
+	if append {
+		flag |= os.O_APPEND
+	}
+
+	fd, err := f.open(flag)
+	if err != nil {
+		return err
+	}
+
+	_, err = fd.Write(data)
+	return err
+}
+
+func (f *File) writeLines(lines []string, append bool) error {
+	flag := os.O_WRONLY
+	if append {
+		flag |= os.O_APPEND
+	}
+
+	fd, err := f.open(flag)
+	if err != nil {
+		return err
+	}
+
+	defer fd.Close()
+
+	for _, line := range lines {
+		if _, err := fd.WriteString(line + "\n"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
 }
 
 // ------------------------------------------------------------------

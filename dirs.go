@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -31,7 +32,7 @@ type Directory struct {
 }
 
 // Match returns a boolean to indicate if any of the provided patterns
-// match against the directory's name
+// match against the directory's base name
 func (d *Directory) Match(patterns ...string) (bool, error) {
 	name := d.Name()
 	for _, patt := range patterns {
@@ -48,20 +49,29 @@ func (d *Directory) Match(patterns ...string) (bool, error) {
 	return false, nil
 }
 
+// MatchAny tries to match one of the patterns against any portion of the
+// Directory path
+func (d *Directory) MatchAny(patterns ...string) (bool, error) {
+	for _, patt := range patterns {
+		re, err := regexp.Compile(patt)
+		if err != nil {
+			return false, err
+		}
+
+		if re.MatchString(d.Path) {
+			return true, nil
+		}
+	}
+
+	return false, nil
+
+}
+
 // Exists checks if this Directory's Path exists and is a directory.
 // Returning false, without an error, does not imply the path does not
 // exist, only that it is not a directory.
 func (d *Directory) Exists() (bool, error) {
-	exists, err := IsDir(d.Path)
-	if err == nil {
-		return exists, nil
-	}
-
-	if err == ErrInexistant {
-		return false, nil
-	}
-
-	return false, err
+	return IsDir(d.Path)
 }
 
 // Dir returns the parent path of the current directory

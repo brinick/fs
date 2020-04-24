@@ -10,8 +10,14 @@ import (
 	"strings"
 )
 
-// ErrInexistant is the error returned when a path does not exist
-var ErrInexistant = fmt.Errorf("Inexistant path")
+// InexistantError is the error returned when a path does not exist
+type InexistantError struct {
+	Path string
+}
+
+func (e InexistantError) Error() string {
+	return fmt.Sprintf("%s: inexistant", e.Path)
+}
 
 // Exists checks if the given path exists.
 // It may be a directory, normal file or symlink.
@@ -22,7 +28,7 @@ func Exists(path string) (bool, error) {
 	}
 
 	if os.IsNotExist(err) {
-		return false, ErrInexistant
+		return false, nil
 	}
 
 	// We return false, however that may not be correct.
@@ -35,7 +41,7 @@ func Exists(path string) (bool, error) {
 func IsSymLink(path string) (bool, error) {
 	fi, err := os.Lstat(path)
 	if os.IsNotExist(err) {
-		return false, ErrInexistant
+		return false, InexistantError{path}
 	}
 
 	if err != nil {
@@ -48,7 +54,7 @@ func IsSymLink(path string) (bool, error) {
 func IsDir(path string) (bool, error) {
 	fi, err := os.Stat(path)
 	if os.IsNotExist(err) {
-		return false, ErrInexistant
+		return false, InexistantError{path}
 	}
 
 	if err != nil {
@@ -68,6 +74,177 @@ func IsFile(path string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// ------------------------------------------------------------------
+
+// Depth returns the integer number of directories that
+// path is below root. If root is not a prefix of path, it
+// returns -1. If root equals path, returns 0.
+// If path is a file, the depth is calculated with
+// respect to the parent directory of the file.
+func Depth(root, path string) (int, error) {
+	removeTrailingSlash := func(s string) string {
+		if strings.HasSuffix(s, "/") {
+			s = s[:len(s)-1]
+		}
+
+		s, _ = filepath.Abs(s)
+		return s
+	}
+
+	root = removeTrailingSlash(root)
+	path = removeTrailingSlash(path)
+
+	if root == path {
+		return 0, nil
+	}
+
+	if !strings.HasPrefix(path, root) {
+		return -1, nil
+	}
+
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return 0, InexistantError{path}
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	if !info.IsDir() {
+		path = filepath.Dir(path)
+	}
+
+	path = strings.Replace(path, root, "", 1)
+	path = strings.Trim(path, "/")
+	dirs := strings.Split(path, "/")
+	return len(dirs), nil
+}
+
+// TreeSize walks the tree starting at root directory,
+// and totals the size of all files it finds. Directories
+// matching entries in the excludeDirs list are not traversed.
+// The grand total in bytes is returned.
+func TreeSize(root string, excludeDirs []string) (int64, error) {
+	totSize := int64(0)
+	err := filepath.Walk(
+		root,
+		func(path string, pathInfo os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if pathInfo.IsDir() {
+				for _, e := range excludeDirs {
+					if pathInfo.Name() == e {
+						return filepath.SkipDir
+					}
+				}
+			} else {
+				totSize += pathInfo.Size()
+			}
+
+			return nil
+		},
+	)
+
+	return totSize, err
+}
+
+// WalkTree walks the tree starting from root, returning
+// all directories and files found. If maxDepth is > 0,
+// the walk will truncate this many levels below root dir.
+// Directories in the excludeDirs slice will be ignored.
+func WalkTree(root string, excludeDirs []string, maxdepth int) ([]string, []string, error) {
+	dirs := []string{}
+	files := []string{}
+
+	currDepth := func(path string) int {
+		depth, _ := Depth(root, path)
+		return depth
+	}
+
+	err := filepath.Walk(
+		root,
+		func(path string, pathInfo os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !pathInfo.IsDir() {
+				files = append(files, path)
+			} else {
+				if maxdepth > 0 && currDepth(path) > maxdepth {
+					return filepath.SkipDir
+				}
+
+				for _, e := range excludeDirs {
+					if pathInfo.Name() == e {
+						return filepath.SkipDir
+					}
+				}
+
+				dirs = append(dirs, path)
+			}
+
+			return nil
+		},
+	)
+
+	return dirs, files, err
+}
+
+// CopyFile copies the src file to the dst directory, giving the
+// destination file the same file mode permissions as the source.
+// If the src file or dst directory do not exist, an InexistantError is returned.
+// If the src file already exists in the dst directory, it will be overwritten,
+// unless the dst directory is the directory in which the src file already
+// exists. In this case, nothing happens.
+func CopyFile(src, dst string) error {
+	// Not copying file to itself
+	if filepath.Dir(src) == dst {
+		return nil
+	}
+
+	for _, path := range []string{src, dst} {
+		ok, err := Exists(path)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return InexistantError{path}
+		}
+	}
+
+	source, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("unable to open input file %s for reading (%w)", src, err)
+	}
+
+	defer source.Close()
+
+	sourceFI, err := source.Stat()
+	if err != nil {
+		return err
+	}
+
+	srcMode := sourceFI.Mode()
+
+	fname := filepath.Join(dst, filepath.Base(src))
+	dest, err := os.Create(fname)
+	if err != nil {
+		return err
+	}
+
+	defer dest.Close()
+	_, err = io.Copy(source, dest)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(fname, srcMode)
 }
 
 // ------------------------------------------------------------------
@@ -204,143 +381,3 @@ func dirLister(dir string) (*entries, error) {
 }
 
 // ------------------------------------------------------------------
-
-// Depth returns the integer number of directories that
-// path is below root. If root is not a prefix of path, it
-// returns 0. If path is a file, the depth is calculated with
-// respect to the parent directory of the file.
-func Depth(root, path string) (int, error) {
-	removeTrailingSlash := func(s string) string {
-		if strings.HasSuffix(s, "/") {
-			s = s[:len(s)-1]
-		}
-
-		s, _ = filepath.Abs(s)
-		return s
-	}
-
-	root = removeTrailingSlash(root)
-	path = removeTrailingSlash(path)
-
-	if root == path {
-		return 0, nil
-	}
-
-	if !strings.HasPrefix(path, root) {
-		return 0, fmt.Errorf("%s not a prefix of %s", root, path)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0, err
-	}
-
-	if !info.IsDir() {
-		path = filepath.Dir(path)
-	}
-
-	path = strings.Replace(path, root, "", 1)
-	path = strings.Trim(path, "/")
-	dirs := strings.Split(path, "/")
-	return len(dirs), nil
-}
-
-// TreeSize walks the tree starting at root directory,
-// and totals the size of all files it finds. Directories
-// matching entries in the excludeDirs list are not traversed.
-// The grand total in bytes is returned.
-func TreeSize(root string, excludeDirs []string) (int64, error) {
-	totSize := int64(0)
-	err := filepath.Walk(
-		root,
-		func(path string, pathInfo os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if pathInfo.IsDir() {
-				for _, e := range excludeDirs {
-					if pathInfo.Name() == e {
-						return filepath.SkipDir
-					}
-				}
-			} else {
-				totSize += pathInfo.Size()
-			}
-
-			return nil
-		},
-	)
-
-	return totSize, err
-}
-
-// WalkTree walks the tree starting from root, returning
-// all directories and files found. If maxDepth is > 0,
-// the walk will truncate this many levels below root dir.
-// Directories in the excludeDirs slice will be ignored.
-func WalkTree(root string, excludeDirs []string, maxdepth int) ([]string, []string, error) {
-	dirs := []string{}
-	files := []string{}
-
-	currDepth := func(path string) int {
-		depth, _ := Depth(root, path)
-		return depth
-	}
-
-	err := filepath.Walk(
-		root,
-		func(path string, pathInfo os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if !pathInfo.IsDir() {
-				files = append(files, path)
-			} else {
-				if maxdepth > 0 && currDepth(path) > maxdepth {
-					return filepath.SkipDir
-				}
-
-				for _, e := range excludeDirs {
-					if pathInfo.Name() == e {
-						return filepath.SkipDir
-					}
-				}
-
-				dirs = append(dirs, path)
-			}
-
-			return nil
-		},
-	)
-
-	return dirs, files, err
-}
-
-// CopyFile copies the src file to the dst directory, giving the
-// destination file the same file mode permissions as the source.
-func CopyFile(src, dst string) error {
-	source, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("unable to open input file %s for reading (%w)", src, err)
-	}
-
-	defer source.Close()
-
-	sourceFI, err := source.Stat()
-	if err != nil {
-		return err
-	}
-
-	fname := filepath.Join(dst, filepath.Base(src))
-	dest, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY, sourceFI.Mode())
-	if err != nil {
-		return err
-	}
-
-	defer dest.Close()
-
-	_, err = io.Copy(source, dest)
-	return err
-}
