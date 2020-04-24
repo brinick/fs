@@ -1,6 +1,8 @@
 package fs_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/brinick/fs"
@@ -42,6 +44,11 @@ func TestCopyFile(t *testing.T) {
 	f, clean := newFile()
 	defer clean()
 
+	dstDir := filepath.Join(f.DirPath(), "subdir")
+	if err := os.MkdirAll(dstDir, 0777); err != nil {
+		t.Fatalf("unable to create dst subdir for copying: %v", err)
+	}
+
 	tests := []struct {
 		name   string
 		inSrc  string
@@ -51,6 +58,7 @@ func TestCopyFile(t *testing.T) {
 		{"same file", f.Path, f.DirPath(), nil},
 		{"inexistant src file", "/missing/file.txt", f.DirPath(), fs.InexistantError{"/missing/file.txt"}},
 		{"inexistant dst dir", f.Path, "/missing/dir", fs.InexistantError{"/missing/dir"}},
+		{"real copy", f.Path, dstDir, nil},
 	}
 
 	for _, tt := range tests {
