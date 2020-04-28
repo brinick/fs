@@ -238,7 +238,19 @@ func (f *File) Size() int64 {
 	return 0
 }
 
-// CopyTo will copy the file to the given destination directory
+// Rename the current file
+func (f *File) Rename(newpath string) error {
+	err := os.Rename(f.Path, newpath)
+	if err == nil {
+		// update this File struct if no error occured
+		f.Path = newpath
+	}
+	return err
+}
+
+// CopyTo copies the file to the given destination directory.
+// If the destination and the file directory are the same, nothing happens
+// and no error is returned.
 func (f *File) CopyTo(dstDir string) error {
 	return CopyFile(f.Path, dstDir)
 }

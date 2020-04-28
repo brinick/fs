@@ -13,7 +13,9 @@ import (
 	"github.com/brinick/fs"
 )
 
-func tempDir() string {
+type cleanUpFn func()
+
+func tempDir() (string, cleanUpFn) {
 	dir, err := ioutil.TempDir("", "fs_files_test")
 	if err != nil {
 		panic(
@@ -24,10 +26,14 @@ func tempDir() string {
 		)
 	}
 
-	return dir
+	return dir, func() { os.RemoveAll(dir) }
 }
 
-type cleanUpFn func()
+func newFile() (*fs.File, cleanUpFn) {
+	dir, clean := tempDir()
+	file := newFileInDir(dir)
+	return file, clean
+}
 
 func newFileInDir(dir string) *fs.File {
 	f := fs.NewFile(filepath.Join(dir, "test.file.txt"))
@@ -35,15 +41,6 @@ func newFileInDir(dir string) *fs.File {
 		panic(fmt.Sprintf("unable to touch new file %s: %v", f.Path, err))
 	}
 	return f
-}
-
-func newFile() (*fs.File, cleanUpFn) {
-	file := newFileInDir(tempDir())
-	cleanup := func() {
-		os.RemoveAll(file.DirPath())
-	}
-
-	return file, cleanup
 }
 
 func newSymLink() (*fs.File, cleanUpFn) {
@@ -56,8 +53,8 @@ func newSymLink() (*fs.File, cleanUpFn) {
 }
 
 func TestGetFileDir(t *testing.T) {
-	parentDir := tempDir()
-	defer os.RemoveAll(parentDir)
+	parentDir, clean := tempDir()
+	defer clean()
 	fdir := newFileInDir(parentDir).Dir().Path
 	if fdir != parentDir {
 		t.Errorf("expected file parent dir to be %s, got %s", parentDir, fdir)
@@ -251,18 +248,67 @@ func TestAppendLines(t *testing.T) {
 	f, clean := newFile()
 	defer clean()
 
-	first := []string{"hello", "world"}
-	if err := f.AppendLines(first); err != nil {
-		t.Errorf("unable to append lines: %v", err)
+	tests := []struct {
+		name   string
+		input  []string
+		expect []string
+	}{
+		{"two lines", []string{"hello", "world"}, []string{"hello", "world"}},
+		{"cumulated lines", []string{"it", "is", "I"}, []string{"hello", "world", "it", "is", "I"}},
 	}
 
-	checkFileHasLines(t, f, first)
+	// cumulate lines across the two tests here
+	var allLines []string
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			allLines = append(allLines, test.input...)
 
-	second := []string{"it", "is", "I"}
-	if err := f.AppendLines(second); err != nil {
-		t.Errorf("unable to append lines: %v", err)
+			if err := f.AppendLines(test.input); err != nil {
+				t.Errorf("unable to append lines: %v", err)
+			}
+
+			checkFileHasLines(t, f, allLines)
+		})
 	}
-	checkFileHasLines(t, f, append(first, second...))
+}
+
+func TestRenameFile(t *testing.T) {
+	f, clean := newFile()
+	defer clean()
+
+	d, cleanDir := tempDir()
+	defer cleanDir()
+
+	tests := []struct {
+		name      string
+		newpath   string
+		expectErr bool
+	}{
+		{"normal rename", filepath.Join(d, "renamed.txt"), false},
+		{"inexistant dst dir", filepath.Join(d, "subdir/renamed.txt"), true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := f.Rename(test.newpath)
+			if err != nil {
+				if !test.expectErr {
+					t.Error("rename should not have returned an error, but did")
+				}
+
+				return
+			}
+
+			if test.expectErr {
+				t.Error("rename should have returned an error, but did not")
+				return
+			}
+
+			if f.Path != test.newpath {
+				t.Errorf("file rename did not work, expected %s, got %s", test.newpath, f.Path)
+			}
+		})
+	}
 }
 
 func checkFileHasLines(t *testing.T, f *fs.File, expect []string) {

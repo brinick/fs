@@ -203,8 +203,8 @@ func WalkTree(root string, excludeDirs []string, maxdepth int) ([]string, []stri
 // unless the dst directory is the directory in which the src file already
 // exists. In this case, nothing happens.
 func CopyFile(src, dst string) error {
-	// Not copying file to itself
-	if filepath.Dir(src) == dst {
+	// Not copying file to itself or to an empty dest dir
+	if filepath.Dir(src) == dst || dst == "" {
 		return nil
 	}
 
