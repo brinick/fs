@@ -1,7 +1,6 @@
 package fs_test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,7 +63,6 @@ func TestCopyFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fmt.Println(tt.inDir)
 			got := fs.CopyFile(tt.inSrc, tt.inDir)
 			if got != tt.expect {
 				t.Errorf("expected %v, got %v", tt.expect, got)

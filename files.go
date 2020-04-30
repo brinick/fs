@@ -238,14 +238,27 @@ func (f *File) Size() int64 {
 	return 0
 }
 
-// Rename the current file
-func (f *File) Rename(newpath string) error {
+// RenameTo renames the current file to the new path. If the destination
+// directory does not exist an error is returned.
+func (f *File) RenameTo(newpath string) error {
 	err := os.Rename(f.Path, newpath)
 	if err == nil {
 		// update this File struct if no error occured
 		f.Path = newpath
 	}
 	return err
+}
+
+// ExportTo creates a copy of the file at the given path.
+func (f *File) ExportTo(copypath string) error {
+	copyDir := filepath.Dir(copypath)
+	// 1. Copy the current file to the copypath parent dir
+	if err := CopyFile(f.Path, copyDir); err != nil {
+		return err
+	}
+
+	// 2. Rename the file to the Base(copypath)
+	return os.Rename(filepath.Join(copyDir, f.Name()), copypath)
 }
 
 // CopyTo copies the file to the given destination directory.

@@ -272,6 +272,41 @@ func TestAppendLines(t *testing.T) {
 	}
 }
 
+func TestExportFile(t *testing.T) {
+	f, clean := newFile()
+	defer clean()
+
+	d, cleanDir := tempDir()
+	defer cleanDir()
+
+	tests := []struct {
+		name      string
+		newpath   string
+		expectErr bool
+	}{
+		{"normal export", filepath.Join(d, "exported.txt"), false},
+		{"inexistant dst dir", filepath.Join(d, "subdir/exported.txt"), true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := f.ExportTo(test.newpath)
+			if err != nil {
+				if !test.expectErr {
+					t.Error("export should not have returned an error, but did")
+				}
+
+				return
+			}
+
+			if test.expectErr {
+				t.Error("export should have returned an error, but did not")
+				return
+			}
+		})
+	}
+}
+
 func TestRenameFile(t *testing.T) {
 	f, clean := newFile()
 	defer clean()
@@ -290,7 +325,7 @@ func TestRenameFile(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := f.Rename(test.newpath)
+			err := f.RenameTo(test.newpath)
 			if err != nil {
 				if !test.expectErr {
 					t.Error("rename should not have returned an error, but did")
