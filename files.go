@@ -249,6 +249,28 @@ func (f *File) RenameTo(newpath string) error {
 	return err
 }
 
+// Backup copies the file to the same directory and adds a .bck suffix.
+func (f *File) Backup() error {
+	bckup := f.Name() + ".bck"
+	return f.ExportTo(filepath.Join(f.DirPath(), bckup))
+}
+
+// Recover looks for a file in the same directory with .bck suffix
+// and overwrites the file with this backup file.
+func (f *File) Recover() error {
+	bckup := f.Name() + ".bck"
+	bckup = filepath.Join(f.DirPath(), bckup)
+	ok, err := Exists(bckup)
+	if err != nil {
+		return fmt.Errorf("unable to check if backup file exists: %v", err)
+	}
+	if !ok {
+		return fmt.Errorf("backup file %s does not exist, nothing to recover", bckup)
+	}
+
+	return os.Rename(bckup, f.Path)
+}
+
 // ExportTo creates a copy of the file at the given path.
 func (f *File) ExportTo(copypath string) error {
 	copyDir := filepath.Dir(copypath)
