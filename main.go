@@ -239,7 +239,7 @@ func CopyFile(src, dst string) error {
 	}
 
 	defer dest.Close()
-	_, err = io.Copy(source, dest)
+	_, err = io.Copy(dest, source)
 	if err != nil {
 		return err
 	}
