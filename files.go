@@ -249,6 +249,33 @@ func (f *File) RenameTo(newpath string) error {
 	return err
 }
 
+// ExportTo creates a copy of the file at the given path.
+func (f *File) ExportTo(copypath string) error {
+	var err error
+	copyDir := filepath.Dir(copypath)
+	if copyDir == f.DirPath() {
+		// Need to use a tempdir if the parent dirs are the same
+		copyDir, err = ioutil.TempDir("", "")
+		if err != nil {
+			return fmt.Errorf("unable to create temp dir: %v", err)
+		}
+	}
+	// 1. Copy the current file to the copyDir
+	if err := CopyFile(f.Path, copyDir); err != nil {
+		return err
+	}
+
+	// 2. Rename the file to the Base(copypath)
+	return os.Rename(filepath.Join(copyDir, f.Name()), copypath)
+}
+
+// CopyTo copies the file to the given destination directory.
+// If the destination and the file directory are the same, nothing happens
+// and no error is returned.
+func (f *File) CopyTo(dstDir string) error {
+	return CopyFile(f.Path, dstDir)
+}
+
 // Backup copies the file to the same directory and adds a .bck suffix.
 func (f *File) Backup() error {
 	bckup := f.Name() + ".bck"
@@ -269,25 +296,6 @@ func (f *File) Recover() error {
 	}
 
 	return os.Rename(bckup, f.Path)
-}
-
-// ExportTo creates a copy of the file at the given path.
-func (f *File) ExportTo(copypath string) error {
-	copyDir := filepath.Dir(copypath)
-	// 1. Copy the current file to the copypath parent dir
-	if err := CopyFile(f.Path, copyDir); err != nil {
-		return err
-	}
-
-	// 2. Rename the file to the Base(copypath)
-	return os.Rename(filepath.Join(copyDir, f.Name()), copypath)
-}
-
-// CopyTo copies the file to the given destination directory.
-// If the destination and the file directory are the same, nothing happens
-// and no error is returned.
-func (f *File) CopyTo(dstDir string) error {
-	return CopyFile(f.Path, dstDir)
 }
 
 // Resolve will resolve the symbolic link, if it is one.
