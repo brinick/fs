@@ -238,15 +238,21 @@ func (f *File) Size() int64 {
 	return 0
 }
 
-// RenameTo renames the current file to the new path. If the destination
-// directory does not exist an error is returned.
-func (f *File) RenameTo(newpath string) error {
-	err := os.Rename(f.Path, newpath)
-	if err == nil {
-		// update this File struct if no error occured
-		f.Path = newpath
+// CopyTo copies the file to the given destination directory.
+// If the destination and the file directory are the same, nothing happens
+// and no error is returned.
+func (f *File) CopyTo(dstDir string) error {
+	return CopyFile(f.Path, dstDir)
+}
+
+// MoveTo moves the file to the given directory
+func (f *File) MoveTo(dir string) error {
+	if err := f.CopyTo(dir); err != nil {
+		return err
 	}
-	return err
+
+	// Now remove the original
+	return os.Remove(f.Path)
 }
 
 // ExportTo creates a copy of the file at the given path.
@@ -269,11 +275,15 @@ func (f *File) ExportTo(copypath string) error {
 	return os.Rename(filepath.Join(copyDir, f.Name()), copypath)
 }
 
-// CopyTo copies the file to the given destination directory.
-// If the destination and the file directory are the same, nothing happens
-// and no error is returned.
-func (f *File) CopyTo(dstDir string) error {
-	return CopyFile(f.Path, dstDir)
+// RenameTo renames the current file to the new path. If the destination
+// directory does not exist an error is returned.
+func (f *File) RenameTo(newpath string) error {
+	err := os.Rename(f.Path, newpath)
+	if err == nil {
+		// update this File struct if no error occured
+		f.Path = newpath
+	}
+	return err
 }
 
 // Backup copies the file to the same directory and adds a .bck suffix.
