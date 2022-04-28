@@ -23,10 +23,14 @@ type Opts struct {
 	// Name of the nightly repo
 	NightlyRepo string `json:"nightly_repo"`
 
+	// RootDir is the directory on which the transaction is opened
+	// If empty string, open on repository root.
+	RootDir string `json:"root_dir"`
+
 	// Machine with rights to contact the CVMFS gateway node
 	ReleaseManager string `json:"release_manager"`
 
-	// How many times we try to open our own CVMFS transaction
+	// How many times we try to open the CVMFS transaction before aborting
 	MaxTransactionAttempts int `json:"max_transaction_open_attempts"`
 }
 
@@ -50,6 +54,7 @@ func NewTransaction(opts *Opts, log logging.Logger, nestedCatalogDirs ...string)
 		Repo:        opts.NightlyRepo,
 		Binary:      opts.Binary,
 		Node:        opts.ReleaseManager,
+		Root:        opts.RootDir,
 		attempts:    opts.MaxTransactionAttempts,
 		catalogDirs: nestedCatalogDirs,
 	}
@@ -65,6 +70,7 @@ type Transaction struct {
 	Binary      string
 	Repo        string
 	Node        string
+	Root        string
 	log         logging.Logger
 	attempts    int
 	catalogDirs []string
@@ -78,22 +84,30 @@ func (t *Transaction) Attempts() int {
 // Start will open a new transaction. If one is already ongoing on
 // this node, it will return an error
 func (t *Transaction) Start(ctx context.Context) error {
-	cmd := fmt.Sprintf("%s transaction %s", t.Binary, t.Repo)
+	path, err := t.relPath()
+	if err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("%s transaction %s", t.Binary, path)
 	res := shell.Run(cmd, shell.Context(ctx))
 	t.log.InfoL(res.Stdout().Lines())
 	t.log.ErrorL(res.Stderr().Lines())
-	return res.Err()
+	return transaction.OpenError{Err: res.Err()}
 }
 
 // Stop will exit the transaction after publishing
 func (t *Transaction) Stop(ctx context.Context) error {
 	// TODO: should we abort publish if we cannot create catalogs? Probably not.
 	createNestedCatalogs(t.catalogDirs...)
-	cmd := fmt.Sprintf("%s publish %s", t.Binary, t.Repo)
+	path, err := t.relPath()
+	if err != nil {
+		return err
+	}
+	cmd := fmt.Sprintf("%s publish %s", t.Binary, path)
 	res := shell.Run(cmd, shell.Context(ctx))
 	t.log.InfoL(res.Stdout().Lines())
 	t.log.ErrorL(res.Stderr().Lines())
-	return res.Err()
+	return transaction.CloseError{Err: res.Err()}
 }
 
 // Kill will halt the ongoing transaction forcefully
@@ -103,7 +117,20 @@ func (t *Transaction) Kill(ctx context.Context) error {
 	res := shell.Run(cmd, shell.Context(ctx))
 	t.log.InfoL(res.Stdout().Lines())
 	t.log.ErrorL(res.Stderr().Lines())
-	return res.Err()
+	return transaction.AbortError{Err: res.Err()}
+}
+
+func (t *Transaction) relPath() (string, error) {
+	if t.Root == "" {
+		return t.Repo, nil
+	}
+	prefix := fmt.Sprintf("/cvmfs/%s/", t.Repo)
+	path, err := filepath.Rel(prefix, t.Root)
+	if err != nil {
+		err = fmt.Errorf("Unable to calculate root path: %v", err)
+	}
+
+	return path, err
 }
 
 func createNestedCatalogs(dirs ...string) error {

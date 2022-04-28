@@ -3,6 +3,7 @@ package transaction
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -35,7 +36,31 @@ type aborter interface {
 	Kill(context.Context) error
 }
 
-// Transaction is the base struct for transactions which specific
+type OpenError struct {
+	Err error
+}
+
+func (t OpenError) Error() string {
+	return fmt.Sprintf("Transaction Open Error: %v", t.Err)
+}
+
+type CloseError struct {
+	Err error
+}
+
+func (t CloseError) Error() string {
+	return fmt.Sprintf("Transaction Close Error: %v", t.Err)
+}
+
+type AbortError struct {
+	Err error
+}
+
+func (t AbortError) Error() string {
+	return fmt.Sprintf("Transaction Abort Error: %v", t.Err)
+}
+
+// Transaction is the base struct for transactions with specific
 // transaction handlers should embed
 type Transaction struct {
 	ongoing bool
@@ -96,7 +121,7 @@ func (t *Transaction) Close(ctx context.Context) error {
 // Abort will kill the ongoing transaction
 func (t *Transaction) Abort(ctx context.Context) error {
 	if !t.ongoing {
-
+		return nil
 	}
 	return t.Aborter.Kill(ctx)
 }
@@ -115,5 +140,6 @@ func (t *Transaction) Stop(ctx context.Context) error {
 
 // Attempts gets the default number of attempts to open a transaction
 func (t *Transaction) Attempts() int {
+	// TODO: make configurable
 	return 3
 }
