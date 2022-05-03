@@ -26,11 +26,13 @@ type closer interface {
 
 type starter interface {
 	Start(context.Context) error
-	Attempts() int
+	OpenAttempts() int
 }
 
 type stopper interface {
 	Stop(context.Context) error
+	PublishAttempts() int
+	PublishAttemptsWait() int
 }
 type aborter interface {
 	Kill(context.Context) error
@@ -77,7 +79,7 @@ func (t *Transaction) Open(ctx context.Context) error {
 
 	var (
 		err      error
-		attempts = t.Attempts()
+		attempts = t.OpenAttempts()
 	)
 
 	for attempts > 0 {
@@ -96,7 +98,6 @@ func (t *Transaction) Open(ctx context.Context) error {
 
 		attempts--
 
-		// TODO: communicate the attempts?
 		// Wait 10 seconds (interruptible) between transaction attempts
 		select {
 		case <-time.After(time.Second * time.Duration(10)):
@@ -108,14 +109,51 @@ func (t *Transaction) Open(ctx context.Context) error {
 	return err
 }
 
+// SetOngoing flips the ongoing flag to true.
+// This allows for a client script to open a transaction,
+// exit, then later re-create a new Transaction object and
+// call the transaction close.
+func (t *Transaction) SetOngoing() {
+	t.ongoing = true
+}
+
 // Close will cleanly shut down the transaction
 func (t *Transaction) Close(ctx context.Context) error {
 	if !t.ongoing {
 		return nil
 	}
 
-	t.ongoing = false
-	return t.Stopper.Stop(ctx)
+	var (
+		err      error
+		attempts = t.PublishAttempts()
+	)
+
+	for attempts > 0 {
+		err = t.Stopper.Stop(ctx)
+		// We break and return if no error returned (transaction opened ok),
+		// or the error is a context cancel/deadline related one. Any other
+		// error implies trying again to open the transaction.
+		if err == nil ||
+			errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) {
+			// set ongoing false only if no error was returned
+			t.ongoing = (err != nil)
+			break
+		}
+
+		attempts--
+		// Wait 10 seconds (interruptible) between transaction attempts
+		select {
+		case <-time.After(time.Second * time.Duration(t.Stopper.PublishAttemptsWait())):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	if err != nil {
+		t.ongoing = false
+	}
+	return err
 }
 
 // Abort will kill the ongoing transaction
@@ -138,8 +176,17 @@ func (t *Transaction) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Attempts gets the default number of attempts to open a transaction
-func (t *Transaction) Attempts() int {
-	// TODO: make configurable
+// OpenAttempts gets the default number of attempts to open a transaction
+func (t *Transaction) OpenAttempts() int {
 	return 3
+}
+
+// PublishAttempts gets the default number of attempts to publish a transaction
+func (t *Transaction) PublishAttempts() int {
+	return 3
+}
+
+// PublishAttempsWait the default number of attempts to publish a transaction
+func (t *Transaction) PublishAttemptsWait() int {
+	return 30
 }

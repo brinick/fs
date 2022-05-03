@@ -31,7 +31,13 @@ type Opts struct {
 	ReleaseManager string `json:"release_manager"`
 
 	// How many times we try to open the CVMFS transaction before aborting
-	MaxTransactionAttempts int `json:"max_transaction_open_attempts"`
+	MaxOpenAttempts int `json:"max_open_attempts"`
+
+	// How many times we try to publish the CVMFS transaction before aborting
+	MaxPublishAttempts int `json:"max_publish_attempts"`
+
+	// Seconds to wait between each attempt to publish
+	PublishAttemptsWait int `json:"publish_attempts_wait"`
 }
 
 func shellWithContext(ctx context.Context, cmd string, args ...string) error {
@@ -51,12 +57,14 @@ var (
 // no error was returned.
 func NewTransaction(opts *Opts, log logging.Logger, nestedCatalogDirs ...string) *Transaction {
 	t := Transaction{
-		Repo:        opts.NightlyRepo,
-		Binary:      opts.Binary,
-		Node:        opts.ReleaseManager,
-		Root:        opts.RootDir,
-		attempts:    opts.MaxTransactionAttempts,
-		catalogDirs: nestedCatalogDirs,
+		Repo:                opts.NightlyRepo,
+		Binary:              opts.Binary,
+		Node:                opts.ReleaseManager,
+		Root:                opts.RootDir,
+		openAttempts:        opts.MaxOpenAttempts,
+		publishAttempts:     opts.MaxPublishAttempts,
+		publishAttemptsWait: opts.PublishAttemptsWait,
+		catalogDirs:         nestedCatalogDirs,
 	}
 
 	t.Transaction.Starter = &t
@@ -67,59 +75,64 @@ func NewTransaction(opts *Opts, log logging.Logger, nestedCatalogDirs ...string)
 // Transaction represents a CVMFS transaction
 type Transaction struct {
 	transaction.Transaction
-	Binary      string
-	Repo        string
-	Node        string
-	Root        string
-	log         logging.Logger
-	attempts    int
-	catalogDirs []string
+	Binary              string
+	Repo                string
+	Node                string
+	Root                string
+	log                 logging.Logger
+	openAttempts        int
+	publishAttempts     int
+	publishAttemptsWait int
+	catalogDirs         []string
 }
 
-// Attempts provides the number of tries allowed for opening the transaction
-func (t *Transaction) Attempts() int {
-	return t.attempts
+// OpenAttempts provides the number of tries allowed for opening the transaction
+func (t *Transaction) OpenAttempts() int {
+	return t.openAttempts
+}
+
+// PublishAttempts provides the number of tries allowed for publishing the transaction
+func (t *Transaction) PublishAttempts() int {
+	return t.publishAttempts
+}
+
+// PublishAttemptsWait provides the seconds to wait between publish attempts
+func (t *Transaction) PublishAttemptsWait() int {
+	return t.publishAttemptsWait
 }
 
 // Start will open a new transaction. If one is already ongoing on
 // this node, it will return an error
 func (t *Transaction) Start(ctx context.Context) error {
-	path, err := t.relPath()
-	if err != nil {
-		return err
-	}
-	cmd := fmt.Sprintf("%s transaction %s", t.Binary, path)
-	res := shell.Run(cmd, shell.Context(ctx))
-	t.log.InfoL(res.Stdout().Lines())
-	t.log.ErrorL(res.Stderr().Lines())
-	return transaction.OpenError{Err: res.Err()}
+	return transaction.OpenError{Err: t.execCmd(ctx, "transaction")}
 }
 
 // Stop will exit the transaction after publishing
 func (t *Transaction) Stop(ctx context.Context) error {
 	// TODO: should we abort publish if we cannot create catalogs? Probably not.
 	createNestedCatalogs(t.catalogDirs...)
-	path, err := t.relPath()
-	if err != nil {
-		return err
-	}
-	cmd := fmt.Sprintf("%s publish %s", t.Binary, path)
-	res := shell.Run(cmd, shell.Context(ctx))
-	t.log.InfoL(res.Stdout().Lines())
-	t.log.ErrorL(res.Stderr().Lines())
-	return transaction.CloseError{Err: res.Err()}
+	return transaction.CloseError{Err: t.execCmd(ctx, "publish")}
 }
 
 // Kill will halt the ongoing transaction forcefully
 // exiting without publishing
 func (t *Transaction) Kill(ctx context.Context) error {
-	cmd := fmt.Sprintf("%s abort -f %s", t.Binary, t.Repo)
-	res := shell.Run(cmd, shell.Context(ctx))
-	t.log.InfoL(res.Stdout().Lines())
-	t.log.ErrorL(res.Stderr().Lines())
-	return transaction.AbortError{Err: res.Err()}
+	return transaction.AbortError{Err: t.execCmd(ctx, "abort -f")}
 }
 
+func (t *Transaction) execCmd(ctx context.Context, cmd string) error {
+	path, err := t.relPath()
+	if err != nil {
+		return err
+	}
+	fullCmd := fmt.Sprintf("%s %s %s", t.Binary, cmd, path)
+	res := shell.Run(fullCmd, shell.Context(ctx))
+	t.log.InfoL(res.Stdout().Lines())
+	t.log.ErrorL(res.Stderr().Lines())
+	return res.Err()
+}
+
+// relPath returns the path below the repo root
 func (t *Transaction) relPath() (string, error) {
 	if t.Root == "" {
 		return t.Repo, nil
